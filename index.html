@@ -2566,16 +2566,493 @@
         }
 
         function showImportStudents() {
-            showNotification('Fitur import siswa akan segera tersedia dengan cloud sync!', 'info');
+            const modal = document.getElementById('modalOverlay');
+            const content = document.getElementById('modalContent');
+            
+            content.innerHTML = `
+                <div class="p-6">
+                    <h2 class="text-xl font-bold text-gray-900 mb-6">
+                        <i class="fas fa-users mr-2 text-blue-600"></i>Import Data Siswa
+                    </h2>
+                    
+                    <div class="mb-6">
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                            <h3 class="font-semibold text-blue-900 mb-2">
+                                <i class="fas fa-info-circle mr-2"></i>Format File yang Didukung
+                            </h3>
+                            <div class="text-blue-800 text-sm space-y-1">
+                                <p>• <strong>CSV:</strong> Format Excel/Spreadsheet</p>
+                                <p>• <strong>JSON:</strong> Format data QuizMaster</p>
+                                <p>• <strong>TXT:</strong> Format teks sederhana</p>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                            <h3 class="font-semibold text-green-900 mb-2">
+                                <i class="fas fa-cloud mr-2"></i>Auto-Sync Cloud Database
+                            </h3>
+                            <p class="text-green-800 text-sm">
+                                Data siswa yang diimport akan otomatis tersinkronisasi ke cloud database dan tersedia di semua device.
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="space-y-4">
+                        <!-- File Upload Area -->
+                        <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center drop-zone" id="studentDropZone">
+                            <input type="file" id="importStudentFile" accept=".json,.csv,.txt" class="hidden">
+                            <div id="studentUploadArea">
+                                <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-4"></i>
+                                <p class="text-gray-600 mb-4">Drag & drop file atau klik untuk pilih</p>
+                                <button type="button" onclick="document.getElementById('importStudentFile').click()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors">
+                                    <i class="fas fa-upload mr-2"></i>Pilih File
+                                </button>
+                                <p class="text-xs text-gray-500 mt-2">CSV, JSON, atau TXT (Max: 5MB)</p>
+                            </div>
+                            <div id="studentFileInfo" class="hidden">
+                                <i class="fas fa-file text-3xl text-green-600 mb-2"></i>
+                                <p id="studentFileName" class="font-medium text-gray-900"></p>
+                                <p id="studentFileSize" class="text-sm text-gray-600"></p>
+                                <button type="button" onclick="clearStudentFile()" class="mt-2 text-red-600 hover:text-red-800 text-sm">
+                                    <i class="fas fa-times mr-1"></i>Hapus File
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Preview Area -->
+                        <div id="studentPreviewArea" class="hidden">
+                            <h3 class="font-semibold text-gray-900 mb-3">Preview Data Siswa:</h3>
+                            <div id="studentsPreview" class="max-h-64 overflow-y-auto bg-gray-50 rounded-lg p-4">
+                                <!-- Preview content will be loaded here -->
+                            </div>
+                            <div class="mt-3 text-sm text-gray-600">
+                                <span id="studentPreviewCount">0</span> siswa siap diimport
+                            </div>
+                        </div>
+                        
+                        <!-- Import Options -->
+                        <div id="studentImportOptions" class="hidden">
+                            <h3 class="font-semibold text-gray-900 mb-3">Opsi Import:</h3>
+                            <div class="space-y-2">
+                                <label class="flex items-center">
+                                    <input type="radio" name="studentImportMode" value="add" checked class="mr-2">
+                                    <span class="text-sm">Tambahkan ke data siswa yang sudah ada</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="radio" name="studentImportMode" value="replace" class="mr-2">
+                                    <span class="text-sm">Ganti semua data siswa yang ada</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="radio" name="studentImportMode" value="update" class="mr-2">
+                                    <span class="text-sm">Update data siswa yang sudah ada (berdasarkan username)</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-between items-center pt-6 mt-6 border-t">
+                        <div class="flex space-x-2">
+                            <button onclick="downloadStudentTemplate('csv')" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors text-sm">
+                                <i class="fas fa-download mr-2"></i>Template CSV
+                            </button>
+                            <button onclick="downloadStudentTemplate('json')" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors text-sm">
+                                <i class="fas fa-download mr-2"></i>Template JSON
+                            </button>
+                        </div>
+                        
+                        <div class="flex space-x-3">
+                            <button onclick="showStudentManagement()" class="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors">
+                                Batal
+                            </button>
+                            <button id="importStudentBtn" onclick="importStudents()" disabled class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                <i class="fas fa-cloud-upload-alt mr-2"></i>Import & Sync
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            modal.classList.remove('hidden');
+            setupStudentImportHandlers();
         }
 
-        function downloadStudentTemplate() {
-            showNotification('Template siswa akan segera tersedia!', 'info');
+        function setupStudentImportHandlers() {
+            const fileInput = document.getElementById('importStudentFile');
+            const dropZone = document.getElementById('studentDropZone');
+            const uploadArea = document.getElementById('studentUploadArea');
+            const fileInfo = document.getElementById('studentFileInfo');
+            const previewArea = document.getElementById('studentPreviewArea');
+            const importOptions = document.getElementById('studentImportOptions');
+            const importBtn = document.getElementById('importStudentBtn');
+            
+            let parsedStudents = [];
+            
+            // Drag and drop handlers
+            dropZone.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+            
+            dropZone.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+            });
+            
+            dropZone.addEventListener('drop', function(e) {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handleStudentFile(files[0]);
+                }
+            });
+            
+            fileInput.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    handleStudentFile(file);
+                }
+            });
+            
+            function handleStudentFile(file) {
+                // Validate file size (5MB max)
+                if (file.size > 5 * 1024 * 1024) {
+                    alert('Ukuran file terlalu besar! Maksimal 5MB.');
+                    return;
+                }
+                
+                // Validate file type
+                const extension = file.name.split('.').pop().toLowerCase();
+                if (!['csv', 'json', 'txt'].includes(extension)) {
+                    alert('Format file tidak didukung! Gunakan CSV, JSON, atau TXT.');
+                    return;
+                }
+                
+                // Show file info
+                document.getElementById('studentFileName').textContent = file.name;
+                document.getElementById('studentFileSize').textContent = `${(file.size / 1024).toFixed(1)} KB`;
+                uploadArea.classList.add('hidden');
+                fileInfo.classList.remove('hidden');
+                
+                // Parse file
+                parseStudentFile(file);
+            }
+            
+            function parseStudentFile(file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const content = e.target.result;
+                    const extension = file.name.split('.').pop().toLowerCase();
+                    
+                    try {
+                        if (extension === 'json') {
+                            parsedStudents = parseStudentJSONFile(content);
+                        } else if (extension === 'csv') {
+                            parsedStudents = parseStudentCSVFile(content);
+                        } else if (extension === 'txt') {
+                            parsedStudents = parseStudentTXTFile(content);
+                        }
+                        
+                        if (parsedStudents.length > 0) {
+                            showStudentPreview(parsedStudents);
+                            previewArea.classList.remove('hidden');
+                            importOptions.classList.remove('hidden');
+                            importBtn.disabled = false;
+                        } else {
+                            alert('Tidak ada data siswa valid yang ditemukan dalam file.');
+                        }
+                    } catch (error) {
+                        alert('Error parsing file: ' + error.message);
+                        console.error('Parse error:', error);
+                    }
+                };
+                reader.readAsText(file);
+            }
+            
+            function parseStudentJSONFile(content) {
+                const data = JSON.parse(content);
+                
+                // Handle different JSON formats
+                let studentsArray = [];
+                
+                if (Array.isArray(data)) {
+                    studentsArray = data;
+                } else if (data.students && Array.isArray(data.students)) {
+                    studentsArray = data.students;
+                } else if (data.siswa && Array.isArray(data.siswa)) {
+                    studentsArray = data.siswa;
+                }
+                
+                return studentsArray.map((s, index) => ({
+                    id: Date.now() + index,
+                    username: s.username || s.user || s.id || '',
+                    password: s.password || s.pass || s.pwd || 'pass123',
+                    name: s.name || s.nama || s.fullname || '',
+                    class: s.class || s.kelas || s.grade || '',
+                    number: parseInt(s.number || s.no || s.absen || s.nomor || 0)
+                })).filter(s => s.username && s.name);
+            }
+            
+            function parseStudentCSVFile(content) {
+                const lines = content.split('\n').filter(line => line.trim());
+                const studentsArray = [];
+                
+                // Skip header if exists
+                const startIndex = lines[0].toLowerCase().includes('username') || 
+                                 lines[0].toLowerCase().includes('nama') ? 1 : 0;
+                
+                for (let i = startIndex; i < lines.length; i++) {
+                    const columns = parseCSVLine(lines[i]);
+                    if (columns.length >= 4) { // username, password, name, class, number
+                        const student = {
+                            id: Date.now() + i,
+                            username: columns[0].trim(),
+                            password: columns[1].trim() || 'pass123',
+                            name: columns[2].trim(),
+                            class: columns[3].trim(),
+                            number: parseInt(columns[4]) || 0
+                        };
+                        
+                        if (student.username && student.name) {
+                            studentsArray.push(student);
+                        }
+                    }
+                }
+                
+                return studentsArray;
+            }
+            
+            function parseStudentTXTFile(content) {
+                const lines = content.split('\n').filter(line => line.trim());
+                const studentsArray = [];
+                
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    
+                    // Format: username|password|name|class|number
+                    // or: username,password,name,class,number
+                    const parts = line.split(/[|,\t]/).map(p => p.trim());
+                    
+                    if (parts.length >= 3) {
+                        const student = {
+                            id: Date.now() + i,
+                            username: parts[0],
+                            password: parts[1] || 'pass123',
+                            name: parts[2],
+                            class: parts[3] || '',
+                            number: parseInt(parts[4]) || 0
+                        };
+                        
+                        if (student.username && student.name) {
+                            studentsArray.push(student);
+                        }
+                    }
+                }
+                
+                return studentsArray;
+            }
+            
+            function showStudentPreview(studentList) {
+                const preview = document.getElementById('studentsPreview');
+                const count = document.getElementById('studentPreviewCount');
+                
+                count.textContent = studentList.length;
+                
+                preview.innerHTML = studentList.slice(0, 10).map((s, index) => `
+                    <div class="bg-white rounded-lg p-3 mb-3 border">
+                        <div class="flex items-center justify-between">
+                            <div class="flex-1">
+                                <div class="flex items-center mb-1">
+                                    <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium mr-2">
+                                        Preview #${index + 1}
+                                    </span>
+                                    <span class="text-xs text-gray-500 font-mono">${s.username}</span>
+                                </div>
+                                <p class="font-medium text-sm">${s.name}</p>
+                                <div class="text-xs text-gray-600">
+                                    Kelas: ${s.class} | No. Absen: ${s.number} | Password: ${s.password}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('') + (studentList.length > 10 ? `
+                    <div class="text-center text-gray-500 text-sm">
+                        ... dan ${studentList.length - 10} siswa lainnya
+                    </div>
+                ` : '');
+            }
+            
+            window.importStudents = async function() {
+                if (parsedStudents.length === 0) return;
+                
+                const importMode = document.querySelector('input[name="studentImportMode"]:checked').value;
+                const button = document.getElementById('importStudentBtn');
+                const originalText = button.innerHTML;
+                
+                button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Importing...';
+                button.disabled = true;
+                
+                try {
+                    let duplicateCount = 0;
+                    let addedCount = 0;
+                    let updatedCount = 0;
+                    
+                    if (importMode === 'replace') {
+                        students = [...parsedStudents];
+                        addedCount = parsedStudents.length;
+                    } else if (importMode === 'add') {
+                        // Add new students, skip duplicates
+                        for (const newStudent of parsedStudents) {
+                            const exists = students.find(s => s.username === newStudent.username);
+                            if (!exists) {
+                                students.push({
+                                    ...newStudent,
+                                    id: Date.now() + Math.random()
+                                });
+                                addedCount++;
+                            } else {
+                                duplicateCount++;
+                            }
+                        }
+                    } else if (importMode === 'update') {
+                        // Update existing students, add new ones
+                        for (const newStudent of parsedStudents) {
+                            const existingIndex = students.findIndex(s => s.username === newStudent.username);
+                            if (existingIndex !== -1) {
+                                students[existingIndex] = {
+                                    ...students[existingIndex],
+                                    ...newStudent,
+                                    id: students[existingIndex].id // Keep original ID
+                                };
+                                updatedCount++;
+                            } else {
+                                students.push({
+                                    ...newStudent,
+                                    id: Date.now() + Math.random()
+                                });
+                                addedCount++;
+                            }
+                        }
+                    }
+                    
+                    // Save to cloud database
+                    if (DatabaseManager.isInitialized) {
+                        await DatabaseManager.saveStudents(students);
+                    }
+                    
+                    // Save to localStorage as backup
+                    saveDataToStorage();
+                    
+                    // Update UI
+                    showStudentManagement();
+                    updateStats();
+                    
+                    // Show success message
+                    let message = '';
+                    if (importMode === 'replace') {
+                        message = `${addedCount} siswa berhasil diimport (mengganti semua data)`;
+                    } else {
+                        const parts = [];
+                        if (addedCount > 0) parts.push(`${addedCount} siswa ditambahkan`);
+                        if (updatedCount > 0) parts.push(`${updatedCount} siswa diupdate`);
+                        if (duplicateCount > 0) parts.push(`${duplicateCount} duplikat dilewati`);
+                        message = parts.join(', ');
+                    }
+                    
+                    if (DatabaseManager.isInitialized) {
+                        message += ' dan disinkronisasi ke cloud!';
+                    } else {
+                        message += ' (tersimpan lokal)!';
+                    }
+                    
+                    showNotification(message, 'success');
+                    
+                } catch (error) {
+                    showNotification('Error saat import: ' + error.message, 'error');
+                    console.error('Import error:', error);
+                } finally {
+                    button.innerHTML = originalText;
+                    button.disabled = false;
+                }
+            };
+            
+            window.clearStudentFile = function() {
+                fileInput.value = '';
+                uploadArea.classList.remove('hidden');
+                fileInfo.classList.add('hidden');
+                previewArea.classList.add('hidden');
+                importOptions.classList.add('hidden');
+                importBtn.disabled = true;
+                parsedStudents = [];
+            };
+        }
+
+        function downloadStudentTemplate(format) {
+            const sampleStudents = [
+                {
+                    username: "siswa001",
+                    password: "pass123",
+                    name: "Ahmad Rizki Pratama",
+                    class: "7A",
+                    number: 1
+                },
+                {
+                    username: "siswa002", 
+                    password: "pass123",
+                    name: "Siti Nurhaliza",
+                    class: "7A",
+                    number: 2
+                },
+                {
+                    username: "siswa003",
+                    password: "pass123", 
+                    name: "Budi Santoso",
+                    class: "7B",
+                    number: 1
+                },
+                {
+                    username: "siswa004",
+                    password: "pass123",
+                    name: "Dewi Sartika",
+                    class: "7B", 
+                    number: 2
+                }
+            ];
+            
+            let content = '';
+            let filename = '';
+            let mimeType = '';
+            
+            if (format === 'json') {
+                content = JSON.stringify(sampleStudents, null, 2);
+                filename = 'template_siswa.json';
+                mimeType = 'application/json';
+            } else if (format === 'csv') {
+                content = 'Username,Password,Nama Lengkap,Kelas,No Absen\n';
+                sampleStudents.forEach(s => {
+                    content += `"${s.username}","${s.password}","${s.name}","${s.class}",${s.number}\n`;
+                });
+                filename = 'template_siswa.csv';
+                mimeType = 'text/csv';
+            }
+            
+            // Download file
+            const blob = new Blob([content], { type: mimeType + ';charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showNotification(`Template siswa ${format.toUpperCase()} berhasil didownload!`, 'success');
         }
 
         function showQuestionNav() {
             showNotification('Navigasi soal akan segera tersedia!', 'info');
         }
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9805edc28049ce73',t:'MTc1ODA4NDA2MC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9805f697c1a8ce73',t:'MTc1ODA4NDQyMi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
