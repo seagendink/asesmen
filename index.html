@@ -21,7 +21,6 @@
 		  messagingSenderId: "93917798261",
 		  appId: "1:93917798261:web:dc833792732a7d48413d3c",
          databaseURL: "https://asessmen-4d52b-default-rtdb.asia-southeast1.firebasedatabase.app"
-
         };
         
         // Initialize Firebase
@@ -2123,9 +2122,447 @@
             }
         });
 
-        // Placeholder functions for missing features
+        // Import Questions Feature
         function showImportQuestions() {
-            showNotification('Fitur import soal akan segera tersedia dengan cloud sync!', 'info');
+            const modal = document.getElementById('modalOverlay');
+            const content = document.getElementById('modalContent');
+            
+            content.innerHTML = `
+                <div class="p-6">
+                    <h2 class="text-xl font-bold text-gray-900 mb-6">
+                        <i class="fas fa-file-import mr-2 text-green-600"></i>Import Soal
+                    </h2>
+                    
+                    <div class="mb-6">
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                            <h3 class="font-semibold text-blue-900 mb-2">
+                                <i class="fas fa-info-circle mr-2"></i>Format File yang Didukung
+                            </h3>
+                            <div class="text-blue-800 text-sm space-y-1">
+                                <p>• <strong>JSON:</strong> Format data QuizMaster</p>
+                                <p>• <strong>CSV:</strong> Format spreadsheet (Excel)</p>
+                                <p>• <strong>TXT:</strong> Format teks sederhana</p>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                            <h3 class="font-semibold text-green-900 mb-2">
+                                <i class="fas fa-cloud mr-2"></i>Auto-Sync Cloud Database
+                            </h3>
+                            <p class="text-green-800 text-sm">
+                                Soal yang diimport akan otomatis tersinkronisasi ke cloud database dan tersedia di semua device.
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="space-y-4">
+                        <!-- File Upload Area -->
+                        <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                            <input type="file" id="importFile" accept=".json,.csv,.txt" class="hidden">
+                            <div id="uploadArea">
+                                <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-4"></i>
+                                <p class="text-gray-600 mb-4">Pilih file untuk diimport</p>
+                                <button type="button" onclick="document.getElementById('importFile').click()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors">
+                                    <i class="fas fa-upload mr-2"></i>Pilih File
+                                </button>
+                                <p class="text-xs text-gray-500 mt-2">JSON, CSV, atau TXT (Max: 10MB)</p>
+                            </div>
+                            <div id="fileInfo" class="hidden">
+                                <i class="fas fa-file text-3xl text-green-600 mb-2"></i>
+                                <p id="fileName" class="font-medium text-gray-900"></p>
+                                <p id="fileSize" class="text-sm text-gray-600"></p>
+                                <button type="button" onclick="clearFile()" class="mt-2 text-red-600 hover:text-red-800 text-sm">
+                                    <i class="fas fa-times mr-1"></i>Hapus File
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Preview Area -->
+                        <div id="previewArea" class="hidden">
+                            <h3 class="font-semibold text-gray-900 mb-3">Preview Soal:</h3>
+                            <div id="questionsPreview" class="max-h-64 overflow-y-auto bg-gray-50 rounded-lg p-4">
+                                <!-- Preview content will be loaded here -->
+                            </div>
+                            <div class="mt-3 text-sm text-gray-600">
+                                <span id="previewCount">0</span> soal siap diimport
+                            </div>
+                        </div>
+                        
+                        <!-- Import Options -->
+                        <div id="importOptions" class="hidden">
+                            <h3 class="font-semibold text-gray-900 mb-3">Opsi Import:</h3>
+                            <div class="space-y-2">
+                                <label class="flex items-center">
+                                    <input type="radio" name="importMode" value="add" checked class="mr-2">
+                                    <span class="text-sm">Tambahkan ke soal yang sudah ada</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="radio" name="importMode" value="replace" class="mr-2">
+                                    <span class="text-sm">Ganti semua soal yang ada</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-between items-center pt-6 mt-6 border-t">
+                        <div class="flex space-x-2">
+                            <button onclick="downloadTemplate('json')" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors text-sm">
+                                <i class="fas fa-download mr-2"></i>Template JSON
+                            </button>
+                            <button onclick="downloadTemplate('csv')" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors text-sm">
+                                <i class="fas fa-download mr-2"></i>Template CSV
+                            </button>
+                        </div>
+                        
+                        <div class="flex space-x-3">
+                            <button onclick="closeModal()" class="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors">
+                                Batal
+                            </button>
+                            <button id="importBtn" onclick="importQuestions()" disabled class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                <i class="fas fa-cloud-upload-alt mr-2"></i>Import & Sync
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            modal.classList.remove('hidden');
+            setupImportHandlers();
+        }
+        
+        function setupImportHandlers() {
+            const fileInput = document.getElementById('importFile');
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInfo = document.getElementById('fileInfo');
+            const previewArea = document.getElementById('previewArea');
+            const importOptions = document.getElementById('importOptions');
+            const importBtn = document.getElementById('importBtn');
+            
+            let parsedQuestions = [];
+            
+            fileInput.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                // Validate file size (10MB max)
+                if (file.size > 10 * 1024 * 1024) {
+                    alert('Ukuran file terlalu besar! Maksimal 10MB.');
+                    return;
+                }
+                
+                // Show file info
+                document.getElementById('fileName').textContent = file.name;
+                document.getElementById('fileSize').textContent = `${(file.size / 1024).toFixed(1)} KB`;
+                uploadArea.classList.add('hidden');
+                fileInfo.classList.remove('hidden');
+                
+                // Parse file
+                parseImportFile(file);
+            });
+            
+            function parseImportFile(file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const content = e.target.result;
+                    const extension = file.name.split('.').pop().toLowerCase();
+                    
+                    try {
+                        if (extension === 'json') {
+                            parsedQuestions = parseJSONFile(content);
+                        } else if (extension === 'csv') {
+                            parsedQuestions = parseCSVFile(content);
+                        } else if (extension === 'txt') {
+                            parsedQuestions = parseTXTFile(content);
+                        }
+                        
+                        if (parsedQuestions.length > 0) {
+                            showPreview(parsedQuestions);
+                            previewArea.classList.remove('hidden');
+                            importOptions.classList.remove('hidden');
+                            importBtn.disabled = false;
+                        } else {
+                            alert('Tidak ada soal valid yang ditemukan dalam file.');
+                        }
+                    } catch (error) {
+                        alert('Error parsing file: ' + error.message);
+                        console.error('Parse error:', error);
+                    }
+                };
+                reader.readAsText(file);
+            }
+            
+            function parseJSONFile(content) {
+                const data = JSON.parse(content);
+                
+                // Handle different JSON formats
+                let questionsArray = [];
+                
+                if (Array.isArray(data)) {
+                    questionsArray = data;
+                } else if (data.questions && Array.isArray(data.questions)) {
+                    questionsArray = data.questions;
+                } else if (data.quiz && Array.isArray(data.quiz)) {
+                    questionsArray = data.quiz;
+                }
+                
+                return questionsArray.map((q, index) => ({
+                    id: Date.now() + index,
+                    type: q.type || 'multiple_choice',
+                    question: q.question || q.text || q.soal || '',
+                    options: q.options || q.choices || q.pilihan || [],
+                    correct: parseInt(q.correct || q.answer || q.jawaban || 0),
+                    image: q.image || null,
+                    video: q.video || null
+                })).filter(q => q.question && q.options.length > 0);
+            }
+            
+            function parseCSVFile(content) {
+                const lines = content.split('\n').filter(line => line.trim());
+                const questionsArray = [];
+                
+                // Skip header if exists
+                const startIndex = lines[0].toLowerCase().includes('question') || lines[0].toLowerCase().includes('soal') ? 1 : 0;
+                
+                for (let i = startIndex; i < lines.length; i++) {
+                    const columns = parseCSVLine(lines[i]);
+                    if (columns.length >= 6) { // question, optionA, optionB, optionC, optionD, correct
+                        const question = {
+                            id: Date.now() + i,
+                            type: 'multiple_choice',
+                            question: columns[0].trim(),
+                            options: [
+                                columns[1].trim(),
+                                columns[2].trim(),
+                                columns[3].trim(),
+                                columns[4].trim()
+                            ],
+                            correct: parseInt(columns[5]) || 0,
+                            image: null,
+                            video: null
+                        };
+                        
+                        if (question.question && question.options.every(opt => opt)) {
+                            questionsArray.push(question);
+                        }
+                    }
+                }
+                
+                return questionsArray;
+            }
+            
+            function parseCSVLine(line) {
+                const result = [];
+                let current = '';
+                let inQuotes = false;
+                
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        result.push(current);
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                
+                result.push(current);
+                return result;
+            }
+            
+            function parseTXTFile(content) {
+                const lines = content.split('\n').filter(line => line.trim());
+                const questionsArray = [];
+                let currentQuestion = null;
+                
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    
+                    // Check if line starts with number (new question)
+                    if (/^\d+\./.test(line)) {
+                        if (currentQuestion && currentQuestion.question && currentQuestion.options.length > 0) {
+                            questionsArray.push(currentQuestion);
+                        }
+                        
+                        currentQuestion = {
+                            id: Date.now() + i,
+                            type: 'multiple_choice',
+                            question: line.replace(/^\d+\.\s*/, ''),
+                            options: [],
+                            correct: 0,
+                            image: null,
+                            video: null
+                        };
+                    }
+                    // Check if line is an option (A., B., C., D.)
+                    else if (/^[A-D]\./.test(line) && currentQuestion) {
+                        currentQuestion.options.push(line.replace(/^[A-D]\.\s*/, ''));
+                    }
+                    // Check if line indicates correct answer
+                    else if (/^(jawaban|answer|correct):/i.test(line) && currentQuestion) {
+                        const answerMatch = line.match(/[A-D]/i);
+                        if (answerMatch) {
+                            currentQuestion.correct = answerMatch[0].toUpperCase().charCodeAt(0) - 65;
+                        }
+                    }
+                }
+                
+                // Add last question
+                if (currentQuestion && currentQuestion.question && currentQuestion.options.length > 0) {
+                    questionsArray.push(currentQuestion);
+                }
+                
+                return questionsArray;
+            }
+            
+            function showPreview(questions) {
+                const preview = document.getElementById('questionsPreview');
+                const count = document.getElementById('previewCount');
+                
+                count.textContent = questions.length;
+                
+                preview.innerHTML = questions.slice(0, 5).map((q, index) => `
+                    <div class="bg-white rounded-lg p-3 mb-3 border">
+                        <div class="flex items-center mb-2">
+                            <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium mr-2">
+                                ${q.type === 'multiple_choice' ? 'Pilihan Ganda' : 'Benar/Salah'}
+                            </span>
+                            <span class="text-xs text-gray-500">Preview #${index + 1}</span>
+                        </div>
+                        <p class="font-medium text-sm mb-2">${q.question}</p>
+                        <div class="text-xs text-gray-600">
+                            ${q.options.map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`).join(' | ')}
+                        </div>
+                        <div class="text-xs text-green-600 mt-1">
+                            Jawaban: ${String.fromCharCode(65 + q.correct)}
+                        </div>
+                    </div>
+                `).join('') + (questions.length > 5 ? `
+                    <div class="text-center text-gray-500 text-sm">
+                        ... dan ${questions.length - 5} soal lainnya
+                    </div>
+                ` : '');
+            }
+            
+            window.importQuestions = async function() {
+                if (parsedQuestions.length === 0) return;
+                
+                const importMode = document.querySelector('input[name="importMode"]:checked').value;
+                const button = document.getElementById('importBtn');
+                const originalText = button.innerHTML;
+                
+                button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Importing...';
+                button.disabled = true;
+                
+                try {
+                    if (importMode === 'replace') {
+                        questions = [...parsedQuestions];
+                    } else {
+                        // Add to existing questions with new IDs
+                        const newQuestions = parsedQuestions.map(q => ({
+                            ...q,
+                            id: Date.now() + Math.random()
+                        }));
+                        questions = [...questions, ...newQuestions];
+                    }
+                    
+                    // Save to cloud database
+                    if (DatabaseManager.isInitialized) {
+                        await DatabaseManager.saveQuestions(questions);
+                        showNotification(`${parsedQuestions.length} soal berhasil diimport dan disinkronisasi ke cloud!`, 'success');
+                    } else {
+                        showNotification(`${parsedQuestions.length} soal berhasil diimport (tersimpan lokal)!`, 'success');
+                    }
+                    
+                    // Save to localStorage as backup
+                    saveDataToStorage();
+                    
+                    // Update UI
+                    loadQuestionsList();
+                    updateStats();
+                    
+                    closeModal();
+                } catch (error) {
+                    showNotification('Error saat import: ' + error.message, 'error');
+                    console.error('Import error:', error);
+                } finally {
+                    button.innerHTML = originalText;
+                    button.disabled = false;
+                }
+            };
+            
+            window.clearFile = function() {
+                fileInput.value = '';
+                uploadArea.classList.remove('hidden');
+                fileInfo.classList.add('hidden');
+                previewArea.classList.add('hidden');
+                importOptions.classList.add('hidden');
+                importBtn.disabled = true;
+                parsedQuestions = [];
+            };
+        }
+        
+        function downloadTemplate(format) {
+            const sampleQuestions = [
+                {
+                    question: "Apa yang dimaksud dengan algoritma?",
+                    optionA: "Bahasa pemrograman",
+                    optionB: "Langkah-langkah sistematis untuk menyelesaikan masalah",
+                    optionC: "Perangkat keras komputer",
+                    optionD: "Sistem operasi",
+                    correct: 1
+                },
+                {
+                    question: "Manakah yang bukan termasuk struktur kontrol?",
+                    optionA: "Sequence (Urutan)",
+                    optionB: "Selection (Pemilihan)",
+                    optionC: "Iteration (Perulangan)",
+                    optionD: "Compilation (Kompilasi)",
+                    correct: 3
+                }
+            ];
+            
+            let content = '';
+            let filename = '';
+            let mimeType = '';
+            
+            if (format === 'json') {
+                const jsonData = sampleQuestions.map((q, index) => ({
+                    id: index + 1,
+                    type: "multiple_choice",
+                    question: q.question,
+                    options: [q.optionA, q.optionB, q.optionC, q.optionD],
+                    correct: q.correct,
+                    image: null,
+                    video: null
+                }));
+                
+                content = JSON.stringify(jsonData, null, 2);
+                filename = 'template_soal.json';
+                mimeType = 'application/json';
+            } else if (format === 'csv') {
+                content = 'Question,Option A,Option B,Option C,Option D,Correct Answer (0-3)\n';
+                sampleQuestions.forEach(q => {
+                    content += `"${q.question}","${q.optionA}","${q.optionB}","${q.optionC}","${q.optionD}",${q.correct}\n`;
+                });
+                filename = 'template_soal.csv';
+                mimeType = 'text/csv';
+            }
+            
+            // Download file
+            const blob = new Blob([content], { type: mimeType + ';charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showNotification(`Template ${format.toUpperCase()} berhasil didownload!`, 'success');
         }
 
         function showImportStudents() {
@@ -2140,5 +2577,5 @@
             showNotification('Navigasi soal akan segera tersedia!', 'info');
         }
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9805c41652033ddb',t:'MTc1ODA4MjM1NC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9805edc28049ce73',t:'MTc1ODA4NDA2MC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
