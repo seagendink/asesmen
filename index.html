@@ -181,10 +181,16 @@
                         <span class="ml-2 bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
                             <i class="fas fa-cloud mr-1"></i>Cloud Sync
                         </span>
+                        <span id="sessionIndicator" class="hidden ml-2 bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium">
+                            <i class="fas fa-user-check mr-1"></i><span id="sessionUser"></span>
+                        </span>
                     </div>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <button id="adminBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors">
+                    <button id="logoutBtn" onclick="logout()" class="hidden bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors">
+                        <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                    </button>
+                    <button id="adminBtn" onclick="showAdminLogin()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors">
                         <i class="fas fa-cog mr-2"></i>Admin
                     </button>
                 </div>
@@ -791,6 +797,18 @@
                 correct: 3,
                 image: null,
                 video: null
+            },
+            {
+                id: 4,
+                type: 'matching',
+                question: 'Pasangkan istilah berikut dengan definisinya yang tepat:',
+                options: {
+                    left: ['Variable', 'Function', 'Loop', 'Array'],
+                    right: ['Kumpulan data sejenis', 'Tempat menyimpan data', 'Blok kode yang dapat dipanggil', 'Pengulangan instruksi']
+                },
+                correct: [1, 2, 3, 0], // Variable->Tempat menyimpan data, Function->Blok kode, Loop->Pengulangan, Array->Kumpulan data
+                image: null,
+                video: null
             }
         ];
 
@@ -817,6 +835,9 @@
             }
             
             updateStats();
+            
+            // Restore session state after data is loaded
+            restoreSessionState();
         };
 
         // Navigation functions
@@ -842,6 +863,135 @@
             });
         }
 
+        // Session Management Functions
+        function saveSessionState(state, data = {}) {
+            const sessionData = {
+                state: state,
+                timestamp: Date.now(),
+                ...data
+            };
+            sessionStorage.setItem('quizMasterSession', JSON.stringify(sessionData));
+        }
+
+        function getSessionState() {
+            const saved = sessionStorage.getItem('quizMasterSession');
+            if (saved) {
+                const sessionData = JSON.parse(saved);
+                // Check if session is still valid (within 2 hours)
+                if (Date.now() - sessionData.timestamp < 2 * 60 * 60 * 1000) {
+                    return sessionData;
+                }
+                // Clear expired session
+                sessionStorage.removeItem('quizMasterSession');
+            }
+            return null;
+        }
+
+        function clearSessionState() {
+            sessionStorage.removeItem('quizMasterSession');
+        }
+
+        function restoreSessionState() {
+            const session = getSessionState();
+            if (!session) return;
+
+            console.log('Restoring session state:', session.state);
+
+            switch (session.state) {
+                case 'student_logged_in':
+                    if (session.user) {
+                        currentUser = session.user;
+                        updateNavigation(true, false);
+                        showQuizInstructions();
+                        showNotification('Sesi dipulihkan! Anda masih login sebagai ' + currentUser.name, 'success');
+                    }
+                    break;
+
+                case 'quiz_in_progress':
+                    if (session.user && session.quizData) {
+                        currentUser = session.user;
+                        currentQuestionIndex = session.quizData.currentIndex || 0;
+                        userAnswers = session.quizData.answers || {};
+                        timeRemaining = session.quizData.timeRemaining || 1800;
+                        
+                        updateNavigation(true, false);
+                        hideAllPages();
+                        document.getElementById('quizPage').classList.remove('hidden');
+                        startTimer();
+                        loadQuestion();
+                        updateProgress();
+                        
+                        showNotification('Quiz dilanjutkan dari soal ke-' + (currentQuestionIndex + 1), 'success');
+                    }
+                    break;
+
+                case 'admin_logged_in':
+                    updateNavigation(false, true);
+                    showAdminDashboard();
+                    showNotification('Sesi admin dipulihkan!', 'success');
+                    break;
+
+                default:
+                    // Invalid or unknown state, clear session
+                    clearSessionState();
+                    break;
+            }
+        }
+
+        function updateNavigation(isStudent, isAdmin) {
+            const logoutBtn = document.getElementById('logoutBtn');
+            const adminBtn = document.getElementById('adminBtn');
+            const sessionIndicator = document.getElementById('sessionIndicator');
+            const sessionUser = document.getElementById('sessionUser');
+            
+            if (isStudent || isAdmin) {
+                logoutBtn.classList.remove('hidden');
+                sessionIndicator.classList.remove('hidden');
+                
+                if (isAdmin) {
+                    adminBtn.textContent = 'Dashboard';
+                    adminBtn.onclick = () => showAdminDashboard();
+                    sessionUser.textContent = 'Admin';
+                } else {
+                    adminBtn.classList.add('hidden');
+                    sessionUser.textContent = currentUser ? currentUser.name : 'Siswa';
+                }
+            } else {
+                logoutBtn.classList.add('hidden');
+                sessionIndicator.classList.add('hidden');
+                adminBtn.classList.remove('hidden');
+                adminBtn.textContent = 'Admin';
+                adminBtn.onclick = () => showAdminLogin();
+            }
+        }
+
+        function logout() {
+            if (confirm('Apakah Anda yakin ingin logout?')) {
+                // Clear timer if running
+                if (quizTimer) {
+                    clearInterval(quizTimer);
+                    quizTimer = null;
+                }
+                
+                // Reset variables
+                currentUser = null;
+                currentQuestionIndex = 0;
+                userAnswers = {};
+                timeRemaining = 1800;
+                
+                // Clear session
+                clearSessionState();
+                
+                // Update navigation
+                updateNavigation(false, false);
+                
+                // Show landing page
+                showLanding();
+                
+                showNotification('Anda telah logout!', 'success');
+            }
+        }
+
         // Student login handling
         document.getElementById('studentForm').addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -860,6 +1010,7 @@
             
             if (student) {
                 currentUser = student;
+                saveSessionState('student_logged_in', { user: student });
                 showQuizInstructions();
             } else {
                 alert('Username atau password salah!');
@@ -886,6 +1037,17 @@
             currentQuestionIndex = 0;
             userAnswers = {};
             timeRemaining = 1800; // Reset timer
+            
+            // Save quiz state
+            saveSessionState('quiz_in_progress', {
+                user: currentUser,
+                quizData: {
+                    currentIndex: currentQuestionIndex,
+                    answers: userAnswers,
+                    timeRemaining: timeRemaining
+                }
+            });
+            
             startTimer();
             loadQuestion();
             updateProgress();
@@ -932,9 +1094,11 @@
             
             const container = document.getElementById('questionContainer');
             let optionsHtml = '';
+            let questionTypeLabel = '';
             
             switch(question.type) {
                 case 'multiple_choice':
+                    questionTypeLabel = 'Pilihan Ganda';
                     optionsHtml = question.options.map((option, index) => `
                         <button class="option-button w-full text-left p-4 rounded-lg border-2 mb-3 hover:bg-gray-50 transition-colors" 
                                 onclick="selectAnswer(${index})" data-option="${index}">
@@ -944,6 +1108,7 @@
                     break;
                     
                 case 'true_false':
+                    questionTypeLabel = 'Benar/Salah';
                     optionsHtml = question.options.map((option, index) => `
                         <button class="option-button w-full text-left p-4 rounded-lg border-2 mb-3 hover:bg-gray-50 transition-colors" 
                                 onclick="selectAnswer(${index})" data-option="${index}">
@@ -951,23 +1116,84 @@
                         </button>
                     `).join('');
                     break;
+                    
+                case 'matching':
+                    questionTypeLabel = 'Menjodohkan';
+                    optionsHtml = `
+                        <div class="grid md:grid-cols-2 gap-6">
+                            <div>
+                                <h4 class="font-semibold text-gray-700 mb-3">Kolom A:</h4>
+                                <div class="space-y-2" id="leftColumn">
+                                    ${question.options.left.map((item, index) => `
+                                        <div class="bg-blue-50 p-3 rounded-lg border-2 border-blue-200">
+                                            <span class="font-medium text-blue-800">${index + 1}.</span> ${item}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-gray-700 mb-3">Kolom B:</h4>
+                                <div class="space-y-2" id="rightColumn">
+                                    ${question.options.right.map((item, index) => `
+                                        <button class="matching-option w-full text-left p-3 rounded-lg border-2 border-gray-300 hover:border-indigo-500 hover:bg-indigo-50 transition-colors" 
+                                                onclick="selectMatchingAnswer(${index})" data-right-option="${index}">
+                                            <span class="font-medium text-gray-600">${String.fromCharCode(65 + index)}.</span> ${item}
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <p class="text-sm text-yellow-800">
+                                <i class="fas fa-info-circle mr-2"></i>
+                                <strong>Petunjuk:</strong> Klik pilihan di Kolom B untuk mencocokkan dengan item di Kolom A secara berurutan (1→A, 2→B, dst.)
+                            </p>
+                            <div class="mt-3" id="matchingProgress">
+                                <div class="text-xs text-yellow-700">
+                                    Jawaban Anda: <span id="matchingAnswers" class="font-mono">[ _, _, _, _ ]</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    break;
+            }
+            
+            // Get media content
+            let mediaHtml = '';
+            if (question.image) {
+                mediaHtml += `<img src="${question.image}" class="max-w-full h-auto rounded-lg mb-4" alt="Question image" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                             <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-red-700 text-sm" style="display:none;">
+                                <i class="fas fa-exclamation-triangle mr-2"></i>Gambar tidak dapat dimuat. Periksa URL gambar.
+                             </div>`;
+            }
+            if (question.video) {
+                mediaHtml += `<video controls class="max-w-full h-auto rounded-lg mb-4" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                <source src="${question.video}" type="video/mp4">
+                                <source src="${question.video}" type="video/webm">
+                                <source src="${question.video}" type="video/ogg">
+                                Browser Anda tidak mendukung video.
+                              </video>
+                              <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-red-700 text-sm" style="display:none;">
+                                <i class="fas fa-exclamation-triangle mr-2"></i>Video tidak dapat dimuat. Periksa URL video.
+                              </div>`;
             }
             
             container.innerHTML = `
                 <div class="mb-6">
                     <div class="flex items-center mb-4">
                         <span class="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium">
-                            ${question.type === 'multiple_choice' ? 'Pilihan Ganda' : 'Benar/Salah'}
+                            ${questionTypeLabel}
                         </span>
                         <span class="ml-2 bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs">
                             <i class="fas fa-cloud mr-1"></i>Cloud Sync
                         </span>
+                        ${question.image ? '<span class="ml-2 bg-purple-100 text-purple-800 px-2 py-1 rounded-full text-xs"><i class="fas fa-image mr-1"></i>Gambar</span>' : ''}
+                        ${question.video ? '<span class="ml-2 bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs"><i class="fas fa-video mr-1"></i>Video</span>' : ''}
                     </div>
                     <h2 class="text-xl font-semibold text-gray-900 mb-4">
                         ${currentQuestionIndex + 1}. ${question.question}
                     </h2>
-                    ${question.image ? `<img src="${question.image}" class="max-w-full h-auto rounded-lg mb-4" alt="Question image">` : ''}
-                    ${question.video ? `<video controls class="max-w-full h-auto rounded-lg mb-4"><source src="${question.video}" type="video/mp4"></video>` : ''}
+                    ${mediaHtml}
                 </div>
                 <div class="space-y-3">
                     ${optionsHtml}
@@ -976,9 +1202,13 @@
             
             // Restore previous answer if exists
             if (userAnswers[question.id] !== undefined) {
-                const selectedButton = container.querySelector(`[data-option="${userAnswers[question.id]}"]`);
-                if (selectedButton) {
-                    selectedButton.classList.add('selected');
+                if (question.type === 'matching') {
+                    restoreMatchingAnswers(question, userAnswers[question.id]);
+                } else {
+                    const selectedButton = container.querySelector(`[data-option="${userAnswers[question.id]}"]`);
+                    if (selectedButton) {
+                        selectedButton.classList.add('selected');
+                    }
                 }
             }
             
@@ -1001,6 +1231,93 @@
             const buttons = container.querySelectorAll('.option-button');
             buttons.forEach(btn => btn.classList.remove('selected'));
             buttons[optionIndex].classList.add('selected');
+            
+            // Update session state
+            saveSessionState('quiz_in_progress', {
+                user: currentUser,
+                quizData: {
+                    currentIndex: currentQuestionIndex,
+                    answers: userAnswers,
+                    timeRemaining: timeRemaining
+                }
+            });
+        }
+
+        // Matching question functions
+        let currentMatchingIndex = 0;
+        
+        function selectMatchingAnswer(rightIndex) {
+            const question = questions[currentQuestionIndex];
+            
+            // Initialize matching answers array if not exists
+            if (!userAnswers[question.id]) {
+                userAnswers[question.id] = new Array(question.options.left.length).fill(-1);
+            }
+            
+            // Set the answer for current position
+            userAnswers[question.id][currentMatchingIndex] = rightIndex;
+            
+            // Update UI
+            updateMatchingUI(question);
+            
+            // Move to next position
+            currentMatchingIndex = (currentMatchingIndex + 1) % question.options.left.length;
+            
+            // Update session state
+            saveSessionState('quiz_in_progress', {
+                user: currentUser,
+                quizData: {
+                    currentIndex: currentQuestionIndex,
+                    answers: userAnswers,
+                    timeRemaining: timeRemaining
+                }
+            });
+        }
+        
+        function updateMatchingUI(question) {
+            const answers = userAnswers[question.id] || new Array(question.options.left.length).fill(-1);
+            
+            // Update progress display
+            const progressElement = document.getElementById('matchingAnswers');
+            if (progressElement) {
+                const displayAnswers = answers.map(ans => ans === -1 ? '_' : String.fromCharCode(65 + ans));
+                progressElement.textContent = `[ ${displayAnswers.join(', ')} ]`;
+            }
+            
+            // Highlight current position in left column
+            const leftItems = document.querySelectorAll('#leftColumn > div');
+            leftItems.forEach((item, index) => {
+                item.classList.remove('ring-2', 'ring-indigo-500', 'bg-indigo-100');
+                if (index === currentMatchingIndex) {
+                    item.classList.add('ring-2', 'ring-indigo-500', 'bg-indigo-100');
+                }
+            });
+            
+            // Update right column buttons
+            const rightButtons = document.querySelectorAll('.matching-option');
+            rightButtons.forEach((button, index) => {
+                button.classList.remove('bg-green-100', 'border-green-500', 'text-green-800');
+                
+                // Highlight if this option is selected for current position
+                if (answers[currentMatchingIndex] === index) {
+                    button.classList.add('bg-green-100', 'border-green-500', 'text-green-800');
+                }
+            });
+        }
+        
+        function restoreMatchingAnswers(question, savedAnswers) {
+            userAnswers[question.id] = savedAnswers;
+            currentMatchingIndex = 0;
+            
+            // Find first unanswered position
+            for (let i = 0; i < savedAnswers.length; i++) {
+                if (savedAnswers[i] === -1) {
+                    currentMatchingIndex = i;
+                    break;
+                }
+            }
+            
+            updateMatchingUI(question);
         }
 
         function nextQuestion() {
@@ -1008,6 +1325,16 @@
                 currentQuestionIndex++;
                 loadQuestion();
                 updateProgress();
+                
+                // Update session state
+                saveSessionState('quiz_in_progress', {
+                    user: currentUser,
+                    quizData: {
+                        currentIndex: currentQuestionIndex,
+                        answers: userAnswers,
+                        timeRemaining: timeRemaining
+                    }
+                });
             }
         }
 
@@ -1016,6 +1343,16 @@
                 currentQuestionIndex--;
                 loadQuestion();
                 updateProgress();
+                
+                // Update session state
+                saveSessionState('quiz_in_progress', {
+                    user: currentUser,
+                    quizData: {
+                        currentIndex: currentQuestionIndex,
+                        answers: userAnswers,
+                        timeRemaining: timeRemaining
+                    }
+                });
             }
         }
 
@@ -1032,8 +1369,27 @@
             // Calculate score
             let correct = 0;
             questions.forEach(question => {
-                if (userAnswers[question.id] === question.correct) {
-                    correct++;
+                const userAnswer = userAnswers[question.id];
+                
+                if (question.type === 'matching') {
+                    // For matching questions, check if all pairs are correct
+                    if (Array.isArray(userAnswer) && Array.isArray(question.correct)) {
+                        let matchingCorrect = true;
+                        for (let i = 0; i < question.correct.length; i++) {
+                            if (userAnswer[i] !== question.correct[i]) {
+                                matchingCorrect = false;
+                                break;
+                            }
+                        }
+                        if (matchingCorrect) {
+                            correct++;
+                        }
+                    }
+                } else {
+                    // For multiple choice and true/false
+                    if (userAnswer === question.correct) {
+                        correct++;
+                    }
                 }
             });
             
@@ -1056,6 +1412,10 @@
             
             // Save to localStorage as backup
             saveResult(result);
+            
+            // Clear session state (quiz completed)
+            clearSessionState();
+            
             showResult(result);
         }
 
@@ -1105,6 +1465,7 @@
             const password = document.getElementById('adminPassword').value;
             
             if (username === adminCredentials.username && password === adminCredentials.password) {
+                saveSessionState('admin_logged_in');
                 showAdminDashboard();
             } else {
                 alert('Username atau password salah!');
@@ -1114,6 +1475,9 @@
         async function showAdminDashboard() {
             hideAllPages();
             document.getElementById('adminDashboard').classList.remove('hidden');
+            
+            // Update navigation for admin
+            updateNavigation(false, true);
             
             // Load latest data from cloud
             if (DatabaseManager.isInitialized) {
@@ -1247,37 +1611,68 @@
                 return;
             }
             
-            container.innerHTML = questions.map((question, index) => `
-                <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                    <div class="flex justify-between items-start">
-                        <div class="flex-1">
-                            <div class="flex items-center mb-2">
-                                <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium mr-2">
-                                    ${question.type === 'multiple_choice' ? 'Pilihan Ganda' : 'Benar/Salah'}
-                                </span>
-                                <span class="text-sm text-gray-500">Soal #${index + 1}</span>
-                                <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium ml-2">
-                                    <i class="fas fa-cloud mr-1"></i>Cloud Sync
-                                </span>
-                                ${question.image ? '<span class="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-medium ml-2"><i class="fas fa-image mr-1"></i>Ada Gambar</span>' : ''}
+            container.innerHTML = questions.map((question, index) => {
+                let typeLabel = '';
+                let answerText = '';
+                
+                switch(question.type) {
+                    case 'multiple_choice':
+                        typeLabel = 'Pilihan Ganda';
+                        answerText = `Jawaban: ${question.options[question.correct]}`;
+                        break;
+                    case 'true_false':
+                        typeLabel = 'Benar/Salah';
+                        answerText = `Jawaban: ${question.options[question.correct]}`;
+                        break;
+                    case 'matching':
+                        typeLabel = 'Menjodohkan';
+                        if (Array.isArray(question.correct)) {
+                            const pairs = question.correct.map((rightIndex, leftIndex) => 
+                                `${leftIndex + 1}→${String.fromCharCode(65 + rightIndex)}`
+                            ).join(', ');
+                            answerText = `Pasangan: ${pairs}`;
+                        } else {
+                            answerText = 'Pasangan: Belum diatur';
+                        }
+                        break;
+                    default:
+                        typeLabel = 'Unknown';
+                        answerText = 'Jawaban: -';
+                }
+                
+                return `
+                    <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1">
+                                <div class="flex items-center mb-2 flex-wrap gap-2">
+                                    <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium">
+                                        ${typeLabel}
+                                    </span>
+                                    <span class="text-sm text-gray-500">Soal #${index + 1}</span>
+                                    <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
+                                        <i class="fas fa-cloud mr-1"></i>Cloud Sync
+                                    </span>
+                                    ${question.image ? '<span class="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-medium"><i class="fas fa-image mr-1"></i>Gambar</span>' : ''}
+                                    ${question.video ? '<span class="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium"><i class="fas fa-video mr-1"></i>Video</span>' : ''}
+                                </div>
+                                <p class="text-gray-900 font-medium mb-2">${question.question}</p>
+                                ${question.image ? `<img src="${question.image}" class="max-w-32 h-20 object-cover rounded-lg mb-2" alt="Question image" onerror="this.style.display='none';">` : ''}
+                                <p class="text-sm text-gray-600">
+                                    ${answerText}
+                                </p>
                             </div>
-                            <p class="text-gray-900 font-medium mb-2">${question.question}</p>
-                            ${question.image ? `<img src="${question.image}" class="max-w-32 h-20 object-cover rounded-lg mb-2" alt="Question image">` : ''}
-                            <p class="text-sm text-gray-600">
-                                Jawaban: ${question.options[question.correct]}
-                            </p>
-                        </div>
-                        <div class="flex space-x-2 ml-4">
-                            <button onclick="editQuestion(${question.id})" class="text-blue-600 hover:text-blue-800 p-2">
-                                <i class="fas fa-edit"></i>
-                            </button>
-                            <button onclick="deleteQuestion(${question.id})" class="text-red-600 hover:text-red-800 p-2">
-                                <i class="fas fa-trash"></i>
-                            </button>
+                            <div class="flex space-x-2 ml-4">
+                                <button onclick="editQuestion(${question.id})" class="text-blue-600 hover:text-blue-800 p-2">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button onclick="deleteQuestion(${question.id})" class="text-red-600 hover:text-red-800 p-2">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         // Database Setup Modal
@@ -1749,6 +2144,7 @@
                             <select id="questionType" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                                 <option value="multiple_choice">Pilihan Ganda</option>
                                 <option value="true_false">Benar/Salah</option>
+                                <option value="matching">Menjodohkan</option>
                             </select>
                         </div>
                         
@@ -1758,22 +2154,54 @@
                         </div>
                         
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Gambar (Opsional)</label>
-                            <div class="border-2 border-dashed border-gray-300 rounded-lg p-4">
-                                <input type="file" id="questionImage" accept="image/*" class="hidden">
-                                <div id="imagePreview" class="hidden mb-3">
-                                    <img id="previewImg" class="max-w-full h-48 object-contain rounded-lg mx-auto">
-                                    <button type="button" onclick="removeImage()" class="mt-2 text-red-600 hover:text-red-800 text-sm">
-                                        <i class="fas fa-trash mr-1"></i>Hapus Gambar
-                                    </button>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Media (Opsional)</label>
+                            <div class="space-y-4">
+                                <!-- Image URL Input -->
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">URL Gambar</label>
+                                    <div class="flex space-x-2">
+                                        <input type="url" id="imageUrl" placeholder="https://example.com/image.jpg" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm">
+                                        <button type="button" onclick="previewImageUrl()" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-lg transition-colors text-sm">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </div>
                                 </div>
-                                <div id="imageUploadArea" class="text-center">
-                                    <i class="fas fa-image text-3xl text-gray-400 mb-2"></i>
-                                    <p class="text-gray-600 mb-2">Klik untuk upload gambar</p>
-                                    <button type="button" onclick="document.getElementById('questionImage').click()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors">
-                                        <i class="fas fa-upload mr-2"></i>Pilih Gambar
-                                    </button>
-                                    <p class="text-xs text-gray-500 mt-2">Format: JPG, PNG, GIF (Max: 5MB)</p>
+                                
+                                <!-- Video URL Input -->
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">URL Video</label>
+                                    <div class="flex space-x-2">
+                                        <input type="url" id="videoUrl" placeholder="https://example.com/video.mp4" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm">
+                                        <button type="button" onclick="previewVideoUrl()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg transition-colors text-sm">
+                                            <i class="fas fa-play"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <!-- Media Preview -->
+                                <div id="mediaPreview" class="hidden border border-gray-200 rounded-lg p-3">
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="text-sm font-medium text-gray-700">Preview Media:</span>
+                                        <button type="button" onclick="clearMediaPreview()" class="text-red-600 hover:text-red-800 text-sm">
+                                            <i class="fas fa-times mr-1"></i>Hapus
+                                        </button>
+                                    </div>
+                                    <div id="mediaContent" class="text-center">
+                                        <!-- Preview content will be loaded here -->
+                                    </div>
+                                </div>
+                                
+                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                    <p class="text-xs text-blue-800">
+                                        <i class="fas fa-info-circle mr-1"></i>
+                                        <strong>Tips:</strong> Gunakan URL langsung ke file gambar/video. 
+                                        Pastikan URL dapat diakses publik dan mendukung CORS.
+                                    </p>
+                                    <div class="mt-2 text-xs text-blue-700">
+                                        <p>• <strong>Gambar:</strong> .jpg, .png, .gif, .webp</p>
+                                        <p>• <strong>Video:</strong> .mp4, .webm, .ogg</p>
+                                        <p>• <strong>Contoh:</strong> https://i.imgur.com/image.jpg</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1863,9 +2291,6 @@
             const optionsContainer = document.getElementById('optionsContainer');
             const correctSelect = document.getElementById('correctAnswer');
             
-            // Setup image upload
-            setupImageUpload();
-            
             function updateOptions() {
                 const type = typeSelect.value;
                 
@@ -1888,11 +2313,50 @@
                         <option value="2">C</option>
                         <option value="3">D</option>
                     `;
-                } else {
+                } else if (type === 'true_false') {
                     optionsContainer.innerHTML = '';
                     correctSelect.innerHTML = `
                         <option value="0">Benar</option>
                         <option value="1">Salah</option>
+                    `;
+                } else if (type === 'matching') {
+                    optionsContainer.innerHTML = `
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Kolom A (Kiri)</label>
+                                <div class="space-y-2">
+                                    <input type="text" id="leftOption0" placeholder="Item 1" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required>
+                                    <input type="text" id="leftOption1" placeholder="Item 2" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required>
+                                    <input type="text" id="leftOption2" placeholder="Item 3" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required>
+                                    <input type="text" id="leftOption3" placeholder="Item 4" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Kolom B (Kanan)</label>
+                                <div class="space-y-2">
+                                    <input type="text" id="rightOption0" placeholder="Pasangan A" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required>
+                                    <input type="text" id="rightOption1" placeholder="Pasangan B" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required>
+                                    <input type="text" id="rightOption2" placeholder="Pasangan C" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required>
+                                    <input type="text" id="rightOption3" placeholder="Pasangan D" class="w-full px-3 py-2 border border-gray-300 rounded-lg" required>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <p class="text-sm text-yellow-800">
+                                <i class="fas fa-info-circle mr-2"></i>
+                                <strong>Petunjuk:</strong> Atur jawaban yang benar di bagian "Jawaban Benar" di bawah.
+                                Urutan: Item 1 → Pasangan ?, Item 2 → Pasangan ?, dst.
+                            </p>
+                        </div>
+                    `;
+                    
+                    correctSelect.innerHTML = `
+                        <option value="">Pilih pola jawaban...</option>
+                        <option value="0,1,2,3">1→A, 2→B, 3→C, 4→D</option>
+                        <option value="1,0,3,2">1→B, 2→A, 3→D, 4→C</option>
+                        <option value="2,3,0,1">1→C, 2→D, 3→A, 4→B</option>
+                        <option value="3,2,1,0">1→D, 2→C, 3→B, 4→A</option>
+                        <option value="custom">Atur Manual...</option>
                     `;
                 }
             }
@@ -1900,15 +2364,68 @@
             typeSelect.addEventListener('change', updateOptions);
             updateOptions();
             
+            // Media preview functions
+            window.previewImageUrl = function() {
+                const url = document.getElementById('imageUrl').value.trim();
+                if (!url) {
+                    alert('Masukkan URL gambar terlebih dahulu!');
+                    return;
+                }
+                
+                const preview = document.getElementById('mediaPreview');
+                const content = document.getElementById('mediaContent');
+                
+                content.innerHTML = `
+                    <img src="${url}" class="max-w-full h-48 object-contain rounded-lg mx-auto" 
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                    <div class="text-red-600 text-sm" style="display:none;">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>Gambar tidak dapat dimuat. Periksa URL.
+                    </div>
+                `;
+                preview.classList.remove('hidden');
+            };
+            
+            window.previewVideoUrl = function() {
+                const url = document.getElementById('videoUrl').value.trim();
+                if (!url) {
+                    alert('Masukkan URL video terlebih dahulu!');
+                    return;
+                }
+                
+                const preview = document.getElementById('mediaPreview');
+                const content = document.getElementById('mediaContent');
+                
+                content.innerHTML = `
+                    <video controls class="max-w-full h-48 rounded-lg mx-auto" 
+                           onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <source src="${url}" type="video/mp4">
+                        <source src="${url}" type="video/webm">
+                        <source src="${url}" type="video/ogg">
+                        Browser tidak mendukung video.
+                    </video>
+                    <div class="text-red-600 text-sm" style="display:none;">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>Video tidak dapat dimuat. Periksa URL.
+                    </div>
+                `;
+                preview.classList.remove('hidden');
+            };
+            
+            window.clearMediaPreview = function() {
+                document.getElementById('mediaPreview').classList.add('hidden');
+                document.getElementById('imageUrl').value = '';
+                document.getElementById('videoUrl').value = '';
+            };
+            
             // Form submission
             document.getElementById('addQuestionForm').addEventListener('submit', async function(e) {
                 e.preventDefault();
                 
                 const type = typeSelect.value;
                 const questionText = document.getElementById('questionText').value;
-                const correct = parseInt(correctSelect.value);
                 
                 let options = [];
+                let correct = null;
+                
                 if (type === 'multiple_choice') {
                     options = [
                         document.getElementById('option0').value,
@@ -1916,16 +2433,41 @@
                         document.getElementById('option2').value,
                         document.getElementById('option3').value
                     ];
-                } else {
+                    correct = parseInt(correctSelect.value);
+                } else if (type === 'true_false') {
                     options = ['Benar', 'Salah'];
+                    correct = parseInt(correctSelect.value);
+                } else if (type === 'matching') {
+                    const leftOptions = [
+                        document.getElementById('leftOption0').value,
+                        document.getElementById('leftOption1').value,
+                        document.getElementById('leftOption2').value,
+                        document.getElementById('leftOption3').value
+                    ];
+                    const rightOptions = [
+                        document.getElementById('rightOption0').value,
+                        document.getElementById('rightOption1').value,
+                        document.getElementById('rightOption2').value,
+                        document.getElementById('rightOption3').value
+                    ];
+                    
+                    options = { left: leftOptions, right: rightOptions };
+                    
+                    const correctValue = correctSelect.value;
+                    if (correctValue === 'custom') {
+                        // For now, use default pattern
+                        correct = [0, 1, 2, 3];
+                    } else if (correctValue) {
+                        correct = correctValue.split(',').map(n => parseInt(n));
+                    } else {
+                        alert('Pilih pola jawaban yang benar!');
+                        return;
+                    }
                 }
                 
-                // Get image data if uploaded
-                let imageData = null;
-                const previewImg = document.getElementById('previewImg');
-                if (previewImg && previewImg.src && previewImg.src.startsWith('data:')) {
-                    imageData = previewImg.src;
-                }
+                // Get media URLs
+                const imageUrl = document.getElementById('imageUrl').value.trim() || null;
+                const videoUrl = document.getElementById('videoUrl').value.trim() || null;
                 
                 const newQuestion = {
                     id: Date.now(),
@@ -1933,8 +2475,8 @@
                     question: questionText,
                     options: options,
                     correct: correct,
-                    image: imageData,
-                    video: null
+                    image: imageUrl,
+                    video: videoUrl
                 };
                 
                 await addQuestionToCloud(newQuestion);
@@ -2305,15 +2847,32 @@
                     questionsArray = data.quiz;
                 }
                 
-                return questionsArray.map((q, index) => ({
-                    id: Date.now() + index,
-                    type: q.type || 'multiple_choice',
-                    question: q.question || q.text || q.soal || '',
-                    options: q.options || q.choices || q.pilihan || [],
-                    correct: parseInt(q.correct || q.answer || q.jawaban || 0),
-                    image: q.image || null,
-                    video: q.video || null
-                })).filter(q => q.question && q.options.length > 0);
+                return questionsArray.map((q, index) => {
+                    const baseQuestion = {
+                        id: Date.now() + index,
+                        type: q.type || 'multiple_choice',
+                        question: q.question || q.text || q.soal || '',
+                        image: q.image || null,
+                        video: q.video || null
+                    };
+                    
+                    if (q.type === 'matching') {
+                        baseQuestion.options = q.options || {
+                            left: q.left || [],
+                            right: q.right || []
+                        };
+                        baseQuestion.correct = Array.isArray(q.correct) ? q.correct : 
+                                            (typeof q.correct === 'string' ? q.correct.split(',').map(n => parseInt(n)) : [0, 1, 2, 3]);
+                    } else {
+                        baseQuestion.options = q.options || q.choices || q.pilihan || [];
+                        baseQuestion.correct = parseInt(q.correct || q.answer || q.jawaban || 0);
+                    }
+                    
+                    return baseQuestion;
+                }).filter(q => q.question && (
+                    (q.type === 'matching' && q.options.left && q.options.right) ||
+                    (q.type !== 'matching' && q.options.length > 0)
+                ));
             }
             
             function parseCSVFile(content) {
@@ -2321,28 +2880,58 @@
                 const questionsArray = [];
                 
                 // Skip header if exists
-                const startIndex = lines[0].toLowerCase().includes('question') || lines[0].toLowerCase().includes('soal') ? 1 : 0;
+                const startIndex = lines[0].toLowerCase().includes('question') || lines[0].toLowerCase().includes('type') ? 1 : 0;
                 
                 for (let i = startIndex; i < lines.length; i++) {
                     const columns = parseCSVLine(lines[i]);
-                    if (columns.length >= 6) { // question, optionA, optionB, optionC, optionD, correct
-                        const question = {
+                    if (columns.length >= 6) {
+                        const type = columns[0] ? columns[0].trim() : 'multiple_choice';
+                        const questionText = columns[1] ? columns[1].trim() : '';
+                        
+                        if (!questionText) continue;
+                        
+                        const baseQuestion = {
                             id: Date.now() + i,
-                            type: 'multiple_choice',
-                            question: columns[0].trim(),
-                            options: [
-                                columns[1].trim(),
-                                columns[2].trim(),
-                                columns[3].trim(),
-                                columns[4].trim()
-                            ],
-                            correct: parseInt(columns[5]) || 0,
-                            image: null,
-                            video: null
+                            type: type,
+                            question: questionText,
+                            image: columns[15] ? columns[15].trim() : null,
+                            video: columns[16] ? columns[16].trim() : null
                         };
                         
-                        if (question.question && question.options.every(opt => opt)) {
-                            questionsArray.push(question);
+                        if (type === 'matching') {
+                            const leftOptions = [
+                                columns[6] ? columns[6].trim() : '',
+                                columns[7] ? columns[7].trim() : '',
+                                columns[8] ? columns[8].trim() : '',
+                                columns[9] ? columns[9].trim() : ''
+                            ].filter(opt => opt);
+                            
+                            const rightOptions = [
+                                columns[10] ? columns[10].trim() : '',
+                                columns[11] ? columns[11].trim() : '',
+                                columns[12] ? columns[12].trim() : '',
+                                columns[13] ? columns[13].trim() : ''
+                            ].filter(opt => opt);
+                            
+                            if (leftOptions.length > 0 && rightOptions.length > 0) {
+                                baseQuestion.options = { left: leftOptions, right: rightOptions };
+                                const correctStr = columns[14] ? columns[14].trim() : '0,1,2,3';
+                                baseQuestion.correct = correctStr.split(',').map(n => parseInt(n.trim()));
+                                questionsArray.push(baseQuestion);
+                            }
+                        } else {
+                            const options = [
+                                columns[2] ? columns[2].trim() : '',
+                                columns[3] ? columns[3].trim() : '',
+                                columns[4] ? columns[4].trim() : '',
+                                columns[5] ? columns[5].trim() : ''
+                            ].filter(opt => opt);
+                            
+                            if (options.length >= 2) {
+                                baseQuestion.options = options;
+                                baseQuestion.correct = parseInt(columns[14]) || 0;
+                                questionsArray.push(baseQuestion);
+                            }
                         }
                     }
                 }
@@ -2423,23 +3012,60 @@
                 
                 count.textContent = questions.length;
                 
-                preview.innerHTML = questions.slice(0, 5).map((q, index) => `
-                    <div class="bg-white rounded-lg p-3 mb-3 border">
-                        <div class="flex items-center mb-2">
-                            <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium mr-2">
-                                ${q.type === 'multiple_choice' ? 'Pilihan Ganda' : 'Benar/Salah'}
-                            </span>
-                            <span class="text-xs text-gray-500">Preview #${index + 1}</span>
+                preview.innerHTML = questions.slice(0, 5).map((q, index) => {
+                    let typeLabel = '';
+                    let optionsDisplay = '';
+                    let answerDisplay = '';
+                    
+                    switch(q.type) {
+                        case 'multiple_choice':
+                            typeLabel = 'Pilihan Ganda';
+                            optionsDisplay = q.options.map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`).join(' | ');
+                            answerDisplay = `Jawaban: ${String.fromCharCode(65 + q.correct)}`;
+                            break;
+                        case 'true_false':
+                            typeLabel = 'Benar/Salah';
+                            optionsDisplay = q.options.map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`).join(' | ');
+                            answerDisplay = `Jawaban: ${String.fromCharCode(65 + q.correct)}`;
+                            break;
+                        case 'matching':
+                            typeLabel = 'Menjodohkan';
+                            optionsDisplay = `Kiri: ${q.options.left.join(', ')} | Kanan: ${q.options.right.join(', ')}`;
+                            if (Array.isArray(q.correct)) {
+                                const pairs = q.correct.map((rightIndex, leftIndex) => 
+                                    `${leftIndex + 1}→${String.fromCharCode(65 + rightIndex)}`
+                                ).join(', ');
+                                answerDisplay = `Pasangan: ${pairs}`;
+                            } else {
+                                answerDisplay = 'Pasangan: Belum diatur';
+                            }
+                            break;
+                        default:
+                            typeLabel = 'Unknown';
+                            optionsDisplay = 'Format tidak dikenal';
+                            answerDisplay = 'Jawaban: -';
+                    }
+                    
+                    return `
+                        <div class="bg-white rounded-lg p-3 mb-3 border">
+                            <div class="flex items-center mb-2 flex-wrap gap-2">
+                                <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium">
+                                    ${typeLabel}
+                                </span>
+                                <span class="text-xs text-gray-500">Preview #${index + 1}</span>
+                                ${q.image ? '<span class="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-medium"><i class="fas fa-image mr-1"></i>Gambar</span>' : ''}
+                                ${q.video ? '<span class="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium"><i class="fas fa-video mr-1"></i>Video</span>' : ''}
+                            </div>
+                            <p class="font-medium text-sm mb-2">${q.question}</p>
+                            <div class="text-xs text-gray-600 mb-1">
+                                ${optionsDisplay}
+                            </div>
+                            <div class="text-xs text-green-600">
+                                ${answerDisplay}
+                            </div>
                         </div>
-                        <p class="font-medium text-sm mb-2">${q.question}</p>
-                        <div class="text-xs text-gray-600">
-                            ${q.options.map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`).join(' | ')}
-                        </div>
-                        <div class="text-xs text-green-600 mt-1">
-                            Jawaban: ${String.fromCharCode(65 + q.correct)}
-                        </div>
-                    </div>
-                `).join('') + (questions.length > 5 ? `
+                    `;
+                }).join('') + (questions.length > 5 ? `
                     <div class="text-center text-gray-500 text-sm">
                         ... dan ${questions.length - 5} soal lainnya
                     </div>
@@ -2507,20 +3133,41 @@
         function downloadTemplate(format) {
             const sampleQuestions = [
                 {
+                    type: "multiple_choice",
                     question: "Apa yang dimaksud dengan algoritma?",
                     optionA: "Bahasa pemrograman",
                     optionB: "Langkah-langkah sistematis untuk menyelesaikan masalah",
                     optionC: "Perangkat keras komputer",
                     optionD: "Sistem operasi",
-                    correct: 1
+                    correct: 1,
+                    image: "",
+                    video: ""
                 },
                 {
-                    question: "Manakah yang bukan termasuk struktur kontrol?",
-                    optionA: "Sequence (Urutan)",
-                    optionB: "Selection (Pemilihan)",
-                    optionC: "Iteration (Perulangan)",
-                    optionD: "Compilation (Kompilasi)",
-                    correct: 3
+                    type: "true_false",
+                    question: "Flowchart adalah representasi visual dari algoritma.",
+                    optionA: "Benar",
+                    optionB: "Salah",
+                    optionC: "",
+                    optionD: "",
+                    correct: 0,
+                    image: "",
+                    video: ""
+                },
+                {
+                    type: "matching",
+                    question: "Pasangkan istilah berikut dengan definisinya:",
+                    leftA: "Variable",
+                    leftB: "Function", 
+                    leftC: "Loop",
+                    leftD: "Array",
+                    rightA: "Kumpulan data sejenis",
+                    rightB: "Tempat menyimpan data",
+                    rightC: "Blok kode yang dapat dipanggil",
+                    rightD: "Pengulangan instruksi",
+                    correct: "1,2,3,0",
+                    image: "https://example.com/image.jpg",
+                    video: "https://example.com/video.mp4"
                 }
             ];
             
@@ -2529,23 +3176,55 @@
             let mimeType = '';
             
             if (format === 'json') {
-                const jsonData = sampleQuestions.map((q, index) => ({
-                    id: index + 1,
-                    type: "multiple_choice",
-                    question: q.question,
-                    options: [q.optionA, q.optionB, q.optionC, q.optionD],
-                    correct: q.correct,
-                    image: null,
-                    video: null
-                }));
+                const jsonData = sampleQuestions.map((q, index) => {
+                    let questionData = {
+                        id: index + 1,
+                        type: q.type,
+                        question: q.question,
+                        image: q.image || null,
+                        video: q.video || null
+                    };
+                    
+                    if (q.type === 'multiple_choice' || q.type === 'true_false') {
+                        questionData.options = [q.optionA, q.optionB, q.optionC, q.optionD].filter(opt => opt);
+                        questionData.correct = q.correct;
+                    } else if (q.type === 'matching') {
+                        questionData.options = {
+                            left: [q.leftA, q.leftB, q.leftC, q.leftD].filter(opt => opt),
+                            right: [q.rightA, q.rightB, q.rightC, q.rightD].filter(opt => opt)
+                        };
+                        questionData.correct = q.correct.split(',').map(n => parseInt(n));
+                    }
+                    
+                    return questionData;
+                });
                 
                 content = JSON.stringify(jsonData, null, 2);
                 filename = 'template_soal.json';
                 mimeType = 'application/json';
             } else if (format === 'csv') {
-                content = 'Question,Option A,Option B,Option C,Option D,Correct Answer (0-3)\n';
+                content = 'Type,Question,Option A,Option B,Option C,Option D,Left A,Left B,Left C,Left D,Right A,Right B,Right C,Right D,Correct,Image URL,Video URL\n';
                 sampleQuestions.forEach(q => {
-                    content += `"${q.question}","${q.optionA}","${q.optionB}","${q.optionC}","${q.optionD}",${q.correct}\n`;
+                    const row = [
+                        q.type,
+                        `"${q.question}"`,
+                        `"${q.optionA || ''}"`,
+                        `"${q.optionB || ''}"`,
+                        `"${q.optionC || ''}"`,
+                        `"${q.optionD || ''}"`,
+                        `"${q.leftA || ''}"`,
+                        `"${q.leftB || ''}"`,
+                        `"${q.leftC || ''}"`,
+                        `"${q.leftD || ''}"`,
+                        `"${q.rightA || ''}"`,
+                        `"${q.rightB || ''}"`,
+                        `"${q.rightC || ''}"`,
+                        `"${q.rightD || ''}"`,
+                        `"${q.correct}"`,
+                        `"${q.image || ''}"`,
+                        `"${q.video || ''}"`
+                    ];
+                    content += row.join(',') + '\n';
                 });
                 filename = 'template_soal.csv';
                 mimeType = 'text/csv';
@@ -3076,5 +3755,5 @@
             showNotification('Navigasi soal akan segera tersedia!', 'info');
         }
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9805fdb6b003ce73',t:'MTc1ODA4NDcxNC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'98061197f16e12b0',t:'MTc1ODA4NTUyOC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
